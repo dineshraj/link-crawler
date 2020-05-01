@@ -1,0 +1,31 @@
+{
+  "name": "link-crawler",
+  "version": "1.0.0",
+  "description": "Crawls a website for broken links.",
+  "main": "index.js",
+  "bin": {
+    "link-crawler": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "node ./src/cli.js",
+    "test": "npm run test:unit && npm run lint && npm run format:check",
+    "test:unit": "mocha './{,!(node_modules)/**}/*.spec.js'",
+    "lint": "eslint '**/*.js'",
+    "format:check": "prettier --check '**/*.{js,json,md}'",
+    "format": "prettier --loglevel warn --write '**/*.{js,json,md}'"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "eslint": "^6.8.0",
+    "eslint-config-prettier": "^6.11.0",
+    "mocha": "^7.1.2",
+    "nock": "^12.0.3",
+    "prettier": "^2.0.5"
+  },
+  "dependencies": {
+    "axios": "^0.19.2",
+    "cheerio": "^1.0.0-rc.3",
+    "limiter": "^1.1.5"
+  }
+}
