@@ -27,16 +27,18 @@ describe('Link Crawler', () => {
       .reply(200, aboutPage);
   });
 
-  it('returns a list of URLs from a given URL if only one page', async () => {
+  it('returns a list of URLs indexed by page', async () => {
     nock(BASE_URL).get('/').reply(200, homePage);
     const crawler = new Crawler(BASE_URL);
     const urls = await crawler.crawl();
-    const expectedUrls = [`${BASE_URL}/news`, `${BASE_URL}/about`];
+    const expectedUrls = {
+      [`${BASE_URL}`]: [`${BASE_URL}/news`, `${BASE_URL}/about`],
+    };
 
     assert.deepStrictEqual(urls, expectedUrls);
   });
 
-  it('returns a list of URLs sorted by the page there are on', async () => {
+  it('returns a list of URLs indexed by the page for multiple pages', async () => {
     const crawler = new Crawler(BASE_URL);
     const urls = await crawler.crawl();
     const expectedUrls = {
