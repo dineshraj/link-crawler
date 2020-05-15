@@ -3,6 +3,9 @@ const axios = require('axios');
 const EventEmitter = require('events');
 const { RateLimiter } = require('limiter');
 
+const lang = require('./lang');
+const logger = require('./logger');
+
 const RATE_LIMIT_MS = 10;
 
 const REQUEST = 'request';
@@ -13,7 +16,7 @@ class Crawler extends EventEmitter {
   constructor(baseUrl) {
     super();
     this.baseUrl = baseUrl;
-    this.siteUrls = {};
+    this.brokenUrls = [];
     this.urlsToProcess = 0;
     this.visitedURLs = new Set();
     this.requestId = 0;
@@ -23,7 +26,22 @@ class Crawler extends EventEmitter {
     this.on(PROCESS_RESPONSE, this.processResponse);
   }
 
-  request(url, requestId) {
+  formatUrl(url) {
+    const { origin, pathname } = new URL(url, this.baseUrl);
+    const pathNameWithoutTrailingSlash = pathname.replace(/\/$/, '');
+
+    return origin + pathNameWithoutTrailingSlash;
+  }
+
+  logMessage(url, status) {
+    if (status >= 300 && status < 400) {
+      logger.warn(`${url} ${status}`);
+    } else if (status >= 400) {
+      logger.error(`${url} ${status}`);
+    }
+  }
+
+  request(url, parentUrl, requestId) {
     this.urlsToProcess++;
     this.visitedURLs.add(url);
 
@@ -32,51 +50,52 @@ class Crawler extends EventEmitter {
         .get(url)
         .then((res) => {
           this.urlsToProcess--;
-          this.emit(PROCESS_RESPONSE, url, res);
+          this.emit(PROCESS_RESPONSE, url, parentUrl, res);
         })
         .catch((err) => {
-          console.log(`${requestId}, Failed to GET ${url}, ${err.message}`);
+          // console.log(`${requestId}, Failed to GET ${url}, ${err.message}`);
           this.urlsToProcess--;
-          this.emit(PROCESSING_DONE);
+          this.emit(PROCESS_RESPONSE, url, parentUrl, err.response);
         });
     });
   }
 
-  formatUrl(url) {
-    const { origin, pathname } = new URL(url, this.baseUrl);
-    const pathNameWithoutTrailingSlash = pathname.replace(/\/$/, '');
+  processResponse(currentUrl, parentUrl, res) {
+    this.logMessage(currentUrl, res.status);
 
-    return origin + pathNameWithoutTrailingSlash;
-  }
+    if (res.status >= 400) {
+      this.brokenUrls.push({
+        brokenLink: currentUrl,
+        parent: parentUrl,
+        status: res.status,
+      });
+    } else {
+      const aTags = cheerio.load(res.data)('a');
+      aTags.each((_, { attribs: { href: childLink } }) => {
+        const formattedChildUrl = this.formatUrl(childLink);
 
-  processResponse(currentUrl, res) {
-    this.siteUrls[currentUrl] = [];
+        if (!formattedChildUrl.includes(this.baseUrl)) {
+          return;
+        }
 
-    const aTags = cheerio.load(res.data)('a');
-    aTags.each((_, { attribs: { href: childLink } }) => {
-      const formattedChildUrl = this.formatUrl(childLink);
+        if (!this.visitedURLs.has(formattedChildUrl)) {
+          this.emit(REQUEST, formattedChildUrl, currentUrl, this.requestId++);
+        }
+      });
+    }
 
-      if (!formattedChildUrl.includes(this.baseUrl)) {
-        return;
-      }
-
-      if (!this.siteUrls[currentUrl].includes(formattedChildUrl)) {
-        this.siteUrls[currentUrl].push(formattedChildUrl);
-      }
-
-      if (!this.visitedURLs.has(formattedChildUrl)) {
-        this.emit(REQUEST, formattedChildUrl, this.requestId++);
-      }
-    });
     this.emit(PROCESSING_DONE);
   }
 
   crawl() {
     return new Promise((resolve) => {
-      this.emit(REQUEST, this.baseUrl, this.requestId++);
+      this.emit(REQUEST, this.baseUrl, '', this.requestId++);
       this.on(PROCESSING_DONE, () => {
         if (this.urlsToProcess === 0) {
-          resolve(this.siteUrls);
+          if (this.brokenUrls.length === 0) {
+            resolve(lang.success);
+          }
+          resolve(this.brokenUrls);
         }
       });
     });

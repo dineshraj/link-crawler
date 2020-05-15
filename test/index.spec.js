@@ -1,67 +1,172 @@
 const assert = require('assert');
+const sinon = require('sinon');
 const nock = require('nock');
 
 const Crawler = require('../src/crawler');
+const lang = require('../src/lang');
+const logger = require('../src/logger');
 
 const BASE_URL = 'https://test.url';
-const homePage = `<html>
-    <a href="${BASE_URL}/news"></a>
-    <a href="${BASE_URL}/about"></a>
-  </html>`;
-const newsPage = `<html>
-    <a href="${BASE_URL}/videos"></a>
-  </html>`;
-const aboutPage = `<html>
-<a href="${BASE_URL}/contact"></a>
-</html>`;
+const sandbox = sinon.createSandbox();
 
 describe('Link Crawler', () => {
   beforeEach(() => {
     nock.cleanAll();
+    sandbox.restore();
   });
 
-  it('returns a list of URLs indexed by page', async () => {
+  it('returns a success message when no links are broken', async () => {
     nock(BASE_URL)
       .get('/')
-      .reply(200, homePage)
+      .reply(
+        200,
+        `<html>
+          <a href="${BASE_URL}/news"></a>
+          <a href="${BASE_URL}/about"></a>
+        </html>`
+      )
       .get('/news')
       .reply(200)
       .get('/about')
       .reply(200);
     const crawler = new Crawler(BASE_URL);
-    const urls = await crawler.crawl();
-    const expectedUrls = {
-      [`${BASE_URL}`]: [`${BASE_URL}/news`, `${BASE_URL}/about`],
-      [`${BASE_URL}/news`]: [],
-      [`${BASE_URL}/about`]: [],
-    };
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
 
-    assert.deepStrictEqual(urls, expectedUrls);
+    assert.strictEqual(output, expectedOutput);
   });
 
-  it('returns a list of URLs indexed by the page for multiple pages', async () => {
+  it('returns an array when the there is only one link and it is broken', async () => {
     nock(BASE_URL)
       .get('/')
-      .reply(200, homePage)
+      .reply(
+        200,
+        `<html>
+        <a href="${BASE_URL}/news"></a>
+      </html>`
+      )
       .get('/news')
-      .reply(200, newsPage)
+      .reply(502);
+
+    const crawler = new Crawler(BASE_URL);
+    const output = await crawler.crawl();
+    const expectedOutput = [
+      {
+        brokenLink: `${BASE_URL}/news`,
+        parent: BASE_URL,
+        status: 502,
+      },
+    ];
+    assert.deepStrictEqual(output, expectedOutput);
+  });
+
+  it('returns an array with broken links when some are broken', async () => {
+    nock(BASE_URL)
+      .get('/')
+      .reply(
+        200,
+        `<html>
+          <a href="${BASE_URL}/news"></a>
+          <a href="${BASE_URL}/about"></a>
+        </html>`
+      )
+      .get('/news')
+      .reply(502)
+      .get('/about')
+      .reply(200);
+    const crawler = new Crawler(BASE_URL);
+    const output = await crawler.crawl();
+    const expectedOutput = [
+      {
+        brokenLink: `${BASE_URL}/news`,
+        parent: BASE_URL,
+        status: 502,
+      },
+    ];
+    assert.deepStrictEqual(output, expectedOutput);
+  });
+
+  it('logs a warning to the console when encountering a 3xx error code', async () => {
+    nock(BASE_URL)
+      .get('/')
+      .reply(
+        200,
+        `<html>
+          <a href="${BASE_URL}/news"></a>
+          <a href="${BASE_URL}/about"></a>
+        </html>`
+      )
+      .get('/news')
+      .reply(302)
+      .get('/about')
+      .reply(200);
+
+    sandbox.stub(logger, 'warn');
+    const crawler = new Crawler(BASE_URL);
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
+
+    sandbox.assert.calledOnce(logger.warn);
+    sandbox.assert.calledWith(logger.warn, `${BASE_URL}/news 302`);
+    assert.deepStrictEqual(output, expectedOutput);
+  });
+
+  it('logs an error to the console when encountering a 4xx or 5xx error code', async () => {
+    nock(BASE_URL)
+      .get('/')
+      .reply(
+        200,
+        `<html>
+          <a href="${BASE_URL}/news"></a>
+          <a href="${BASE_URL}/about"></a>
+        </html>`
+      )
+      .get('/news')
+      .reply(404)
+      .get('/about')
+      .reply(200);
+
+    sandbox.stub(logger, 'error');
+    const crawler = new Crawler(BASE_URL);
+    await crawler.crawl();
+
+    sandbox.assert.calledOnce(logger.error);
+    sandbox.assert.calledWith(logger.error, `${BASE_URL}/news 404`);
+  });
+
+  it('can navigate multiple pages', async () => {
+    nock(BASE_URL)
+      .get('/')
+      .reply(
+        200,
+        `<html>
+          <a href="${BASE_URL}/news"></a>
+          <a href="${BASE_URL}/about"></a>
+        </html>`
+      )
+      .get('/news')
+      .reply(
+        200,
+        `<html>
+          <a href="${BASE_URL}/videos"></a>
+        </html>`
+      )
       .get('/videos')
       .reply(200)
       .get('/contact')
       .reply(200)
       .get('/about')
-      .reply(200, aboutPage);
+      .reply(
+        200,
+        `<html>
+          <a href="${BASE_URL}/contact"></a>
+        </html>`
+      );
     const crawler = new Crawler(BASE_URL);
-    const urls = await crawler.crawl();
-    const expectedUrls = {
-      [`${BASE_URL}`]: [`${BASE_URL}/news`, `${BASE_URL}/about`],
-      [`${BASE_URL}/news`]: [`${BASE_URL}/videos`],
-      [`${BASE_URL}/about`]: [`${BASE_URL}/contact`],
-      [`${BASE_URL}/videos`]: [],
-      [`${BASE_URL}/contact`]: [],
-    };
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
 
-    assert.deepStrictEqual(urls, expectedUrls);
+    assert.deepStrictEqual(output, expectedOutput);
   });
 
   it('handles relative paths', async () => {
@@ -69,18 +174,18 @@ describe('Link Crawler', () => {
       .get('/')
       .reply(200, '<html><a href="/news"></a><a href="/about"></a></html>')
       .get('/news')
-      .reply(200)
+      .reply(302)
       .get('/about')
       .reply(200);
-    const crawler = new Crawler(BASE_URL);
-    const urls = await crawler.crawl();
-    const expectedUrls = {
-      [`${BASE_URL}`]: [`${BASE_URL}/news`, `${BASE_URL}/about`],
-      [`${BASE_URL}/news`]: [],
-      [`${BASE_URL}/about`]: [],
-    };
 
-    assert.deepStrictEqual(urls, expectedUrls);
+    sandbox.stub(logger, 'warn');
+    const crawler = new Crawler(BASE_URL);
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
+
+    sandbox.assert.calledOnce(logger.warn);
+    sandbox.assert.calledWith(logger.warn, `${BASE_URL}/news 302`);
+    assert.deepStrictEqual(output, expectedOutput);
   });
 
   it('does not enter an infinite loop if the same link exists on more than one page', async () => {
@@ -97,19 +202,10 @@ describe('Link Crawler', () => {
       .reply(200, `<html>${nav}Article contents</html>`);
 
     const crawler = new Crawler(BASE_URL);
-    const urls = await crawler.crawl();
-    const expectedUrls = {
-      [`${BASE_URL}`]: [
-        `${BASE_URL}/news`,
-        `${BASE_URL}/about`,
-        `${BASE_URL}/article`,
-      ],
-      [`${BASE_URL}/news`]: [`${BASE_URL}/news`, `${BASE_URL}/about`],
-      [`${BASE_URL}/about`]: [`${BASE_URL}/news`, `${BASE_URL}/about`],
-      [`${BASE_URL}/article`]: [`${BASE_URL}/news`, `${BASE_URL}/about`],
-    };
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
 
-    assert.deepStrictEqual(urls, expectedUrls);
+    assert.strictEqual(output, expectedOutput);
   });
 
   it('scopes the urls visited to pages under the given base URL', async () => {
@@ -132,44 +228,44 @@ describe('Link Crawler', () => {
       )
       .get('/news/about')
       .reply(200);
+    nock('http://www.i-am-not-real-123098.com').get('/').reply(502);
 
     const crawler = new Crawler(`${BASE_URL}/news`);
-    const urls = await crawler.crawl();
-    const expectedUrls = {
-      [`${BASE_URL}/news`]: [
-        `${BASE_URL}/news/article1`,
-        `${BASE_URL}/news/article2`,
-      ],
-      [`${BASE_URL}/news/about`]: [],
-      [`${BASE_URL}/news/article1`]: [],
-      [`${BASE_URL}/news/article2`]: [`${BASE_URL}/news/about`],
-    };
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
 
-    assert.deepStrictEqual(urls, expectedUrls);
+    assert.strictEqual(output, expectedOutput);
   });
 
   it('strips hashes from urls rather than treating them as separate links', async () => {
     nock(BASE_URL)
-      .persist()
       .get('/')
       .reply(
         200,
-        `<html><a href="/article1#intro">Article Link</a><a href="/article1#main">Article Link</a></html>`
+        `<html>
+          <a href="/article1#intro"></a>
+          <a href="/article1#main"></a>
+          <a href="/about"></a>
+        </html>`
       )
       .get('/article1')
+      .reply(404)
+      .get('/about')
       .reply(200);
 
     const crawler = new Crawler(BASE_URL);
-    const urls = await crawler.crawl();
-    const expectedUrls = {
-      [`${BASE_URL}`]: [`${BASE_URL}/article1`],
-      [`${BASE_URL}/article1`]: [],
-    };
-
-    assert.deepStrictEqual(urls, expectedUrls);
+    const output = await crawler.crawl();
+    const expectedOutput = [
+      {
+        brokenLink: `${BASE_URL}/article1`,
+        parent: BASE_URL,
+        status: 404,
+      },
+    ];
+    assert.deepStrictEqual(output, expectedOutput);
   });
 
-  it.only('does not differentiate between urls with and without trailing slashes', async () => {
+  it('does not differentiate between urls with and without trailing slashes', async () => {
     nock(BASE_URL)
       .persist()
       .get('/')
@@ -177,16 +273,21 @@ describe('Link Crawler', () => {
         200,
         `<html><a href="/article1">Article Link</a><a href="/article1/">Article Link</a></html>`
       )
+      .get('/article1/')
+      .reply(502)
       .get('/article1')
-      .reply(200);
+      .reply(502);
 
     const crawler = new Crawler(BASE_URL);
-    const urls = await crawler.crawl();
-    const expectedUrls = {
-      [`${BASE_URL}`]: [`${BASE_URL}/article1`],
-      [`${BASE_URL}/article1`]: [],
-    };
+    const output = await crawler.crawl();
+    const expectedOutput = [
+      {
+        brokenLink: `${BASE_URL}/article1`,
+        parent: BASE_URL,
+        status: 502,
+      },
+    ];
 
-    assert.deepStrictEqual(urls, expectedUrls);
+    assert.deepStrictEqual(output, expectedOutput);
   });
 });
