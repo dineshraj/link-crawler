@@ -2,8 +2,8 @@ const Crawler = require('./crawler');
 
 async function run(baseUrl) {
   const crawler = new Crawler(baseUrl);
-  const siteLinks = await crawler.crawl(baseUrl);
-  console.log(siteLinks);
+  const siteUrls = await crawler.crawl(baseUrl);
+  console.log(siteUrls);
 }
 
 module.exports = run;
