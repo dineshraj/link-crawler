@@ -2,7 +2,6 @@ const cheerio = require('cheerio');
 const axios = require('axios');
 const EventEmitter = require('events');
 const { RateLimiter } = require('limiter');
-
 const lang = require('./lang');
 const logger = require('./logger');
 
@@ -11,6 +10,11 @@ const RATE_LIMIT_MS = 10;
 const REQUEST = 'request';
 const PROCESS_RESPONSE = 'response';
 const PROCESSING_DONE = 'processing_done';
+
+const YELLOW = '\x1b[33m%s\x1b[0m';
+const RED = '\x1b[31m%s\x1b[0m';
+
+const PLACEHOLDER = '%s';
 
 class Crawler extends EventEmitter {
   constructor(baseUrl) {
@@ -26,6 +30,12 @@ class Crawler extends EventEmitter {
     this.on(PROCESS_RESPONSE, this.processResponse);
   }
 
+  formatString(string, ...parameters) {
+    return [...parameters].reduce((accumulator, value) => {
+      return accumulator.replace(PLACEHOLDER, value);
+    }, string);
+  }
+
   formatUrl(url) {
     const { origin, pathname } = new URL(url, this.baseUrl);
     const pathNameWithoutTrailingSlash = pathname.replace(/\/$/, '');
@@ -34,10 +44,14 @@ class Crawler extends EventEmitter {
   }
 
   logMessage(url, status) {
+    const message = this.formatString(lang.failed, url, status);
+
     if (status >= 300 && status < 400) {
-      logger.warn(`${url} ${status}`);
+      logger.warn(YELLOW, message);
     } else if (status >= 400) {
-      logger.error(`${url} ${status}`);
+      logger.error(RED, message);
+    } else if (status !== 200) {
+      logger.info(message);
     }
   }
 
@@ -61,19 +75,21 @@ class Crawler extends EventEmitter {
   }
 
   processResponse(currentUrl, parentUrl, res) {
-    this.logMessage(currentUrl, res.status);
+    const status = res ? res.status : lang.noStatus;
+    this.logMessage(currentUrl, status);
 
     if (res.status >= 400) {
       this.brokenUrls.push({
         brokenLink: currentUrl,
         parent: parentUrl,
-        status: res.status,
+        status: res.status
       });
     } else {
       const aTags = cheerio.load(res.data)('a');
       aTags.each((_, { attribs: { href: childLink } }) => {
         const formattedChildUrl = this.formatUrl(childLink);
 
+        // stops crawling of external domains
         if (!formattedChildUrl.includes(this.baseUrl)) {
           return;
         }
