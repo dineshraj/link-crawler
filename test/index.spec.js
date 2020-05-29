@@ -13,6 +13,7 @@ describe('Link Crawler', () => {
   beforeEach(() => {
     nock.cleanAll();
     sandbox.restore();
+    sandbox.stub(console, 'error').returns();
   });
 
   it('returns a success message when no links are broken', async () => {
@@ -42,7 +43,7 @@ describe('Link Crawler', () => {
       .reply(
         200,
         `<html>
-        <a href="${BASE_URL}/news"></a>
+        <a href="${BASE_URL}/news">News</a>
       </html>`
       )
       .get('/news')
@@ -52,10 +53,11 @@ describe('Link Crawler', () => {
     const output = await crawler.crawl();
     const expectedOutput = [
       {
-        brokenLink: `${BASE_URL}/news`,
-        parent: BASE_URL,
-        status: 502,
-      },
+        brokenLink: '/news',
+        linkText: 'News',
+        parent: '/',
+        status: 502
+      }
     ];
     assert.deepStrictEqual(output, expectedOutput);
   });
@@ -66,7 +68,7 @@ describe('Link Crawler', () => {
       .reply(
         200,
         `<html>
-          <a href="${BASE_URL}/news"></a>
+          <a href="${BASE_URL}/news">News</a>
           <a href="${BASE_URL}/about"></a>
         </html>`
       )
@@ -78,36 +80,12 @@ describe('Link Crawler', () => {
     const output = await crawler.crawl();
     const expectedOutput = [
       {
-        brokenLink: `${BASE_URL}/news`,
-        parent: BASE_URL,
-        status: 502,
-      },
+        brokenLink: '/news',
+        linkText: 'News',
+        parent: '/',
+        status: 502
+      }
     ];
-    assert.deepStrictEqual(output, expectedOutput);
-  });
-
-  it('logs a warning to the console when encountering a 3xx error code', async () => {
-    nock(BASE_URL)
-      .get('/')
-      .reply(
-        200,
-        `<html>
-          <a href="${BASE_URL}/news"></a>
-          <a href="${BASE_URL}/about"></a>
-        </html>`
-      )
-      .get('/news')
-      .reply(302)
-      .get('/about')
-      .reply(200);
-
-    sandbox.stub(logger, 'warn');
-    const crawler = new Crawler(BASE_URL);
-    const output = await crawler.crawl();
-    const expectedOutput = lang.success;
-
-    sandbox.assert.calledOnce(logger.warn);
-    sandbox.assert.calledWith(logger.warn, `${BASE_URL}/news 302`);
     assert.deepStrictEqual(output, expectedOutput);
   });
 
@@ -131,7 +109,10 @@ describe('Link Crawler', () => {
     await crawler.crawl();
 
     sandbox.assert.calledOnce(logger.error);
-    sandbox.assert.calledWith(logger.error, `${BASE_URL}/news 404`);
+    sandbox.assert.calledWithMatch(
+      logger.error,
+      'Fetched /news, status: 404, parent: /'
+    );
   });
 
   it('can navigate multiple pages', async () => {
@@ -174,7 +155,7 @@ describe('Link Crawler', () => {
       .get('/')
       .reply(200, '<html><a href="/news"></a><a href="/about"></a></html>')
       .get('/news')
-      .reply(302)
+      .reply(200)
       .get('/about')
       .reply(200);
 
@@ -183,8 +164,6 @@ describe('Link Crawler', () => {
     const output = await crawler.crawl();
     const expectedOutput = lang.success;
 
-    sandbox.assert.calledOnce(logger.warn);
-    sandbox.assert.calledWith(logger.warn, `${BASE_URL}/news 302`);
     assert.deepStrictEqual(output, expectedOutput);
   });
 
@@ -243,7 +222,7 @@ describe('Link Crawler', () => {
       .reply(
         200,
         `<html>
-          <a href="/article1#intro"></a>
+          <a href="/article1#intro">One</a>
           <a href="/article1#main"></a>
           <a href="/about"></a>
         </html>`
@@ -257,10 +236,11 @@ describe('Link Crawler', () => {
     const output = await crawler.crawl();
     const expectedOutput = [
       {
-        brokenLink: `${BASE_URL}/article1`,
-        parent: BASE_URL,
-        status: 404,
-      },
+        brokenLink: '/article1',
+        linkText: 'One',
+        parent: '/',
+        status: 404
+      }
     ];
     assert.deepStrictEqual(output, expectedOutput);
   });
@@ -282,10 +262,11 @@ describe('Link Crawler', () => {
     const output = await crawler.crawl();
     const expectedOutput = [
       {
-        brokenLink: `${BASE_URL}/article1`,
-        parent: BASE_URL,
-        status: 502,
-      },
+        brokenLink: '/article1',
+        linkText: 'Article Link',
+        parent: '/',
+        status: 502
+      }
     ];
 
     assert.deepStrictEqual(output, expectedOutput);

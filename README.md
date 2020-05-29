@@ -5,6 +5,7 @@
 ## To do
 
 - Fix node erroring when a lot of connections are open
+- Add link text to output
 - Depth limit
 
 ## Installation
