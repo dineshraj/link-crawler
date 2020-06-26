@@ -168,6 +168,26 @@ describe('Link Crawler', () => {
     assert.deepStrictEqual(output, expectedOutput);
   });
 
+  it('handles mailto: hrefs', async () => {
+    nock(BASE_URL)
+      .get('/')
+      .reply(
+        200,
+        '<html><a href="/news"></a><a href="mailto:email@company.com"></a></html>'
+      )
+      .get('/news')
+      .reply(200)
+      .get('/about')
+      .reply(200);
+
+    sandbox.stub(logger, 'warn');
+    const crawler = new Crawler(BASE_URL);
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
+
+    assert.deepStrictEqual(output, expectedOutput);
+  });
+
   it('does not enter an infinite loop if the same link exists on more than one page', async () => {
     const nav = `<a href="${BASE_URL}/news"></a><a href="${BASE_URL}/about"></a>`;
     nock(BASE_URL)
@@ -190,16 +210,18 @@ describe('Link Crawler', () => {
 
   it('visits an external URL but does not crawl it', async () => {
     nock('http://www.i-am-not-real-123098.com')
+      .persist()
       .get('/')
-      .reply(200)
+      .reply(
+        200,
+        `<html><a href="http://www.i-am-not-real-123098.com/a-page">Page Link</a><></html>`
+      )
       .get('/a-page')
       .reply(404);
 
     nock(`${BASE_URL}`)
       .persist()
       .get('/')
-      .reply(200, `<html><a href="/news">News link</a></html>`)
-      .get('/news')
       .reply(
         200,
         `<html><a href="/news/article1">Article Link</a><a href="/news/article2">Article Link</a></html>`
@@ -210,19 +232,12 @@ describe('Link Crawler', () => {
         `<html>Article 1<a href="http://www.i-am-not-real-123098.com">Sponsor</a></html>`
       )
       .get('/news/article2')
-      .reply(200)
-      .get('/news/article3')
-      .reply(
-        404,
-        `<html>Article 1<a href="http://www.i-am-not-real-1230989.com">Sponsor</a></html>`
-      )
-      .get('/news/about')
       .reply(200);
 
     const crawler = new Crawler(BASE_URL);
     const output = await crawler.crawl();
     const expectedOutput = lang.success;
-    assert.deepStrictEqual(output, expectedOutput);
+    assert.strictEqual(output, expectedOutput);
   });
 
   it('if broken link is external the full URL is displayed', async () => {
@@ -281,6 +296,27 @@ describe('Link Crawler', () => {
     assert.deepStrictEqual(output, expectedOutput);
   });
 
+  it.only('if URLs are just hashes, it does not visit them', async () => {
+    nock(BASE_URL)
+      .get('/')
+      .reply(
+        200,
+        `<html>
+        <a href="#intro"></a>
+        <a href="#main"></a>
+        <a href="#about"></a>
+      </html>`
+      )
+      .get('/')
+      .reply(404);
+
+    const crawler = new Crawler(BASE_URL);
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
+
+    assert.deepStrictEqual(output, expectedOutput);
+  });
+
   it('does not differentiate between urls with and without trailing slashes', async () => {
     nock(BASE_URL)
       .persist()
@@ -308,7 +344,7 @@ describe('Link Crawler', () => {
     assert.deepStrictEqual(output, expectedOutput);
   });
 
-  it('retries a URL if there is a connection error', async () => {
+  it('shows what urls errored after they were retried', async () => {
     nock(BASE_URL)
       .persist()
       .get('/')
@@ -316,20 +352,14 @@ describe('Link Crawler', () => {
         200,
         `<html><a href="/article1">Article Link</a><a href="/article1/">Article Link</a></html>`
       )
-      .get('/article1/')
-      .reply(502)
       .get('/article1')
-      .reply(502);
-
-    const axiosInstance = axios.create({
-      timeout: 10000
-    });
-
-    const axiosGetStub = sandbox.stub(axiosInstance, 'get');
-    axiosGetStub.returns(new Error());
+      .replyWithError({
+        message: 'socket hang up',
+        code: 'ECONNRESET'
+      });
 
     const crawler = new Crawler(BASE_URL);
-    const output = await crawler.crawl();
+    const [, errors] = await crawler.crawl();
     const expectedOutput = [
       {
         brokenLink: '/article1',
@@ -338,7 +368,8 @@ describe('Link Crawler', () => {
         status: 502
       }
     ];
+    console.log('rr', errors);
 
-    assert.deepStrictEqual(output, expectedOutput);
+    assert.deepStrictEqual(errors, expectedOutput);
   });
 });

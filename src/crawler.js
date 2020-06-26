@@ -13,8 +13,9 @@ const PROCESS_RESPONSE = 'response';
 const PROCESSING_DONE = 'processing_done';
 
 const RATE_LIMIT_MS = 5;
-const MAX_CONCURRENT_REQUESTS = 20;
+const MAX_CONCURRENT_REQUESTS = 50;
 const PLACEHOLDER = '%s';
+const RETRY_COUNT = 5;
 
 const httpsAgent = new https.Agent({ keepAlive: true });
 
@@ -25,6 +26,7 @@ class Crawler extends EventEmitter {
     this.brokenUrls = [];
     this.urlsToProcess = 0;
     this.visitedURLs = new Set();
+    this.retries = [];
     this.requestId = 0;
     this.limiter = new RateLimiter(1, RATE_LIMIT_MS);
     this.axiosInstance = axios.create({
@@ -47,6 +49,12 @@ class Crawler extends EventEmitter {
     }, string);
   }
 
+  isValidUrl(url) {
+    const { origin } = new URL(url, this.baseUrl);
+
+    return origin !== 'null';
+  }
+
   formatUrl(url) {
     const { origin, pathname } = new URL(url, this.baseUrl);
     const pathNameWithoutTrailingSlash = pathname.replace(/\/$/, '');
@@ -54,9 +62,14 @@ class Crawler extends EventEmitter {
     return origin + pathNameWithoutTrailingSlash;
   }
 
-  logMessage(path, status, parentPath) {
-    const message = this.formatString(lang.failed, path, status, parentPath);
-    logger.error(message);
+  logMessage(message, path, status, parentPath) {
+    const formattedMessage = this.formatString(
+      message,
+      path,
+      status,
+      parentPath
+    );
+    logger.error(formattedMessage);
   }
 
   request(url, parentUrl, linkText, requestId) {
@@ -75,10 +88,28 @@ class Crawler extends EventEmitter {
           this.urlsToProcess--;
           if (!err.response) {
             logger.warn(
-              `${requestId}: Failed to fetch ${url}, ${err.message}, retrying...`
+              `${requestId}: ${lang.failedFetch} ${url}, ${err.message}, ${lang.retry} ${this.retries[url]}`
             );
+            this.retries[url]++;
+
             // retry URL if connection error
-            this.emit(REQUEST, url, parentUrl, linkText, requestId);
+            if (this.retries[url] < RETRY_COUNT) {
+              this.emit(REQUEST, url, parentUrl, linkText, requestId);
+            } else {
+              logger.error(
+                `${requestId}: Retried ${url} ${RETRY_COUNT} times, ${err.message}, ${lang.skip}`
+              );
+              const skippedRes = {
+                status: 498
+              };
+              this.emit(
+                PROCESS_RESPONSE,
+                `${url} - ${lang.unreachable}`,
+                parentUrl,
+                linkText,
+                skippedRes
+              );
+            }
           } else {
             this.emit(PROCESS_RESPONSE, url, parentUrl, linkText, err.response);
           }
@@ -97,7 +128,7 @@ class Crawler extends EventEmitter {
       : { pathname: null };
 
     if (status >= 400) {
-      this.logMessage(currentLink, status, parent);
+      this.logMessage(lang.failed, currentLink, status, parent);
     }
 
     try {
@@ -113,16 +144,19 @@ class Crawler extends EventEmitter {
         const aTags = $('a');
         $(aTags).each((_, aTag) => {
           const linkText = $(aTag).text();
-          const childHref = $(aTag).attr('href');
-          const formattedChildUrl = this.formatUrl(childHref);
-          const formattedParentUrl = this.formatUrl(parentUrl);
+          const childHref = $(aTag).attr('href') || '';
 
-          // stops crawling of external domains after the initial link
-          if (!formattedParentUrl.includes(this.baseUrl)) {
+          if (
+            (!childHref.includes(this.baseUrl) &&
+              !currentUrl.includes(this.baseUrl)) ||
+            !this.isValidUrl(childHref)
+          )
             return;
-          }
+
+          const formattedChildUrl = this.formatUrl(childHref);
 
           if (!this.visitedURLs.has(formattedChildUrl)) {
+            this.retries[formattedChildUrl] = 0;
             this.emit(
               REQUEST,
               formattedChildUrl,

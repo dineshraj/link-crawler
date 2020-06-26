@@ -9,5 +9,10 @@ module.exports = {
   done: 'Scanning done.',
   timeTaken: 'Time taken: %s',
   baseUrl: 'baseUrl',
-  results: 'RESULTS'
+  results: 'RESULTS',
+  unreachable: 'UNREACHABLE',
+  found: 'broken links found',
+  failedFetch: 'Failed to fetch',
+  retry: 'retry',
+  skip: 'skipping...'
 };

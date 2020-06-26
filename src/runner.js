@@ -11,12 +11,15 @@ async function run(baseUrl) {
 
   const crawler = new Crawler(baseUrl);
   const siteUrls = await crawler.crawl(baseUrl);
+  const count = typeof siteUrls === 'string' ? 0 : siteUrls.length;
 
   const end = new Date() - start;
 
   const output = `
   
   ${lang.done}
+
+  ${count} ${lang.found}
 
   ${lang.timeTaken.replace('%s', formatDate(end))}
   
