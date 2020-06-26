@@ -1,6 +1,7 @@
 const assert = require('assert');
 const sinon = require('sinon');
 const nock = require('nock');
+const axios = require('axios');
 
 const Crawler = require('../src/crawler');
 const lang = require('../src/lang');
@@ -187,9 +188,17 @@ describe('Link Crawler', () => {
     assert.strictEqual(output, expectedOutput);
   });
 
-  it('scopes the urls visited to pages under the given base URL', async () => {
+  it('visits an external URL but does not crawl it', async () => {
+    nock('http://www.i-am-not-real-123098.com')
+      .get('/')
+      .reply(200)
+      .get('/a-page')
+      .reply(404);
+
     nock(`${BASE_URL}`)
       .persist()
+      .get('/')
+      .reply(200, `<html><a href="/news">News link</a></html>`)
       .get('/news')
       .reply(
         200,
@@ -201,9 +210,30 @@ describe('Link Crawler', () => {
         `<html>Article 1<a href="http://www.i-am-not-real-123098.com">Sponsor</a></html>`
       )
       .get('/news/article2')
+      .reply(200)
+      .get('/news/article3')
+      .reply(
+        404,
+        `<html>Article 1<a href="http://www.i-am-not-real-1230989.com">Sponsor</a></html>`
+      )
+      .get('/news/about')
+      .reply(200);
+
+    const crawler = new Crawler(BASE_URL);
+    const output = await crawler.crawl();
+    const expectedOutput = lang.success;
+    assert.deepStrictEqual(output, expectedOutput);
+  });
+
+  it('if broken link is external the full URL is displayed', async () => {
+    nock(`${BASE_URL}`)
+      .persist()
+      .get('/news')
+      .reply(200, `<html><a href="/news/article1">Article Link</a></html>`)
+      .get('/news/article1')
       .reply(
         200,
-        `<html>Article 2<a href="/news/about">About</a><a href="http://www.i-am-not-real-123093.com">Sponsor 2</a></html>`
+        `<html>Article 1<a href="http://www.i-am-not-real-123098.com">Sponsor</a></html>`
       )
       .get('/news/about')
       .reply(200);
@@ -211,9 +241,15 @@ describe('Link Crawler', () => {
 
     const crawler = new Crawler(`${BASE_URL}/news`);
     const output = await crawler.crawl();
-    const expectedOutput = lang.success;
-
-    assert.strictEqual(output, expectedOutput);
+    const expectedOutput = [
+      {
+        brokenLink: 'http://www.i-am-not-real-123098.com',
+        linkText: 'Sponsor',
+        parent: '/news/article1',
+        status: 502
+      }
+    ];
+    assert.deepStrictEqual(output, expectedOutput);
   });
 
   it('strips hashes from urls rather than treating them as separate links', async () => {
@@ -257,6 +293,40 @@ describe('Link Crawler', () => {
       .reply(502)
       .get('/article1')
       .reply(502);
+
+    const crawler = new Crawler(BASE_URL);
+    const output = await crawler.crawl();
+    const expectedOutput = [
+      {
+        brokenLink: '/article1',
+        linkText: 'Article Link',
+        parent: '/',
+        status: 502
+      }
+    ];
+
+    assert.deepStrictEqual(output, expectedOutput);
+  });
+
+  it('retries a URL if there is a connection error', async () => {
+    nock(BASE_URL)
+      .persist()
+      .get('/')
+      .reply(
+        200,
+        `<html><a href="/article1">Article Link</a><a href="/article1/">Article Link</a></html>`
+      )
+      .get('/article1/')
+      .reply(502)
+      .get('/article1')
+      .reply(502);
+
+    const axiosInstance = axios.create({
+      timeout: 10000
+    });
+
+    const axiosGetStub = sandbox.stub(axiosInstance, 'get');
+    axiosGetStub.returns(new Error());
 
     const crawler = new Crawler(BASE_URL);
     const output = await crawler.crawl();

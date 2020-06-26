@@ -12,8 +12,8 @@ const REQUEST = 'request';
 const PROCESS_RESPONSE = 'response';
 const PROCESSING_DONE = 'processing_done';
 
-const RATE_LIMIT_MS = 20;
-const MAX_CONCURRENT_REQUESTS = 40;
+const RATE_LIMIT_MS = 5;
+const MAX_CONCURRENT_REQUESTS = 20;
 const PLACEHOLDER = '%s';
 
 const httpsAgent = new https.Agent({ keepAlive: true });
@@ -67,15 +67,18 @@ class Crawler extends EventEmitter {
       this.axiosInstance
         .get(url)
         .then((res) => {
+          this.visitedURLs.add(url);
           this.urlsToProcess--;
           this.emit(PROCESS_RESPONSE, url, parentUrl, linkText, res);
         })
         .catch((err) => {
           this.urlsToProcess--;
           if (!err.response) {
-            console.log(
-              `ID ${requestId}, Failed to fetch ${url}, ${err.message}`
+            logger.warn(
+              `${requestId}: Failed to fetch ${url}, ${err.message}, retrying...`
             );
+            // retry URL if connection error
+            this.emit(REQUEST, url, parentUrl, linkText, requestId);
           } else {
             this.emit(PROCESS_RESPONSE, url, parentUrl, linkText, err.response);
           }
@@ -85,35 +88,37 @@ class Crawler extends EventEmitter {
 
   processResponse(currentUrl, parentUrl, linkText, res) {
     const status = res.status;
-    const { pathname: brokenLink } = new URL(currentUrl);
+    const { pathname: linkPath } = new URL(currentUrl);
+    const currentLink = !this.formatUrl(currentUrl).includes(this.baseUrl)
+      ? currentUrl
+      : linkPath;
     const { pathname: parent } = parentUrl
       ? new URL(parentUrl)
       : { pathname: null };
 
     if (status >= 400) {
-      this.logMessage(brokenLink, status, parent);
+      this.logMessage(currentLink, status, parent);
     }
 
     try {
       if (status >= 400) {
         this.brokenUrls.push({
-          brokenLink,
+          brokenLink: currentLink,
           linkText,
           parent,
           status
         });
       } else {
-        const aTags = cheerio.load(res.data)('a');
-        aTags.each((_, aTag) => {
-          const {
-            attribs: { href: childLink }
-          } = aTag;
+        const $ = cheerio.load(res.data);
+        const aTags = $('a');
+        $(aTags).each((_, aTag) => {
+          const linkText = $(aTag).text();
+          const childHref = $(aTag).attr('href');
+          const formattedChildUrl = this.formatUrl(childHref);
+          const formattedParentUrl = this.formatUrl(parentUrl);
 
-          const linkText = aTag.children[0] ? aTag.children[0].data : null;
-          const formattedChildUrl = this.formatUrl(childLink);
-
-          // stops crawling of external domains
-          if (!formattedChildUrl.includes(this.baseUrl)) {
+          // stops crawling of external domains after the initial link
+          if (!formattedParentUrl.includes(this.baseUrl)) {
             return;
           }
 
