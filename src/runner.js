@@ -32,8 +32,6 @@ async function run(baseUrl) {
   console.log(output);
   console.table(siteUrls);
 
-  exec(`export LINK_COUNT=${count}`);
-
   if (count > 0) {
     process.exit(1);
   }
