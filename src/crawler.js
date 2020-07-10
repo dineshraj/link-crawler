@@ -72,7 +72,7 @@ class Crawler extends EventEmitter {
     logger.error(formattedMessage);
   }
 
-  request(url, parentUrl, linkText, requestId) {
+  request(url, parentUrl = this.baseUrl, linkText, requestId) {
     this.urlsToProcess++;
     this.visitedURLs.add(url);
 
@@ -100,15 +100,9 @@ class Crawler extends EventEmitter {
                 `${requestId}: Retried ${url} ${RETRY_COUNT} times, ${err.message}, ${lang.skip}`
               );
               const skippedRes = {
-                status: 498
+                status: lang.unreachable
               };
-              this.emit(
-                PROCESS_RESPONSE,
-                `${url} - ${lang.unreachable}`,
-                parentUrl,
-                linkText,
-                skippedRes
-              );
+              this.emit(PROCESS_RESPONSE, url, parentUrl, linkText, skippedRes);
             }
           } else {
             this.emit(PROCESS_RESPONSE, url, parentUrl, linkText, err.response);
@@ -127,12 +121,12 @@ class Crawler extends EventEmitter {
       ? new URL(parentUrl)
       : { pathname: null };
 
-    if (status >= 400) {
+    if (status >= 400 || status === lang.unreachable) {
       this.logMessage(lang.failed, currentLink, status, parent);
     }
 
     try {
-      if (status >= 400) {
+      if (status >= 400 || status === lang.unreachable) {
         this.brokenUrls.push({
           brokenLink: currentLink,
           linkText,
