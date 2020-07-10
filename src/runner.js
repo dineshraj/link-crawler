@@ -30,6 +30,8 @@ async function run(baseUrl) {
   console.log(output);
   console.table(siteUrls);
 
+  process.env.LINK_COUNT = count;
+
   if (count > 0) {
     process.exit(1);
   }
