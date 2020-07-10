@@ -1,4 +1,5 @@
 const { exec } = require('child_process');
+const fs = require('fs');
 
 const Crawler = require('./crawler');
 const lang = require('./lang');
@@ -31,6 +32,10 @@ async function run(baseUrl) {
   `;
   console.log(output);
   console.table(siteUrls);
+
+  fs.writeFile('./vars.txt', `LINK_COUNT=${count}`, function (err) {
+    if (err) return console.log(err);
+  });
 
   if (count > 0) {
     process.exit(1);
