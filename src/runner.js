@@ -1,3 +1,5 @@
+const { exec } = require('child_process');
+
 const Crawler = require('./crawler');
 const lang = require('./lang');
 
@@ -30,7 +32,7 @@ async function run(baseUrl) {
   console.log(output);
   console.table(siteUrls);
 
-  process.env.LINK_COUNT = count;
+  exec(`export LINK_COUNT=${count}`);
 
   if (count > 0) {
     process.exit(1);
