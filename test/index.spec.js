@@ -1,7 +1,6 @@
 const assert = require('assert');
 const sinon = require('sinon');
 const nock = require('nock');
-const axios = require('axios');
 
 const Crawler = require('../src/crawler');
 const lang = require('../src/lang');
@@ -296,7 +295,7 @@ describe('Link Crawler', () => {
     assert.deepStrictEqual(output, expectedOutput);
   });
 
-  it.only('if URLs are just hashes, it does not visit them', async () => {
+  it('if URLs are just hashes, it does not visit them', async () => {
     nock(BASE_URL)
       .get('/')
       .reply(
@@ -359,17 +358,15 @@ describe('Link Crawler', () => {
       });
 
     const crawler = new Crawler(BASE_URL);
-    const [, errors] = await crawler.crawl();
+    const output = await crawler.crawl();
     const expectedOutput = [
       {
         brokenLink: '/article1',
         linkText: 'Article Link',
         parent: '/',
-        status: 502
+        status: 'UNREACHABLE'
       }
     ];
-    console.log('rr', errors);
-
-    assert.deepStrictEqual(errors, expectedOutput);
+    assert.deepStrictEqual(output, expectedOutput);
   });
 });
