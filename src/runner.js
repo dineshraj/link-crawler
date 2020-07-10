@@ -29,6 +29,10 @@ async function run(baseUrl) {
   `;
   console.log(output);
   console.table(siteUrls);
+
+  if (count > 0) {
+    process.exit(1);
+  }
 }
 
 module.exports = run;
